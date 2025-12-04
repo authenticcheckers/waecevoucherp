@@ -30,7 +30,7 @@ router.post('/purchase', async (req, res) => {
         const paystackResponse = await axios.post(`${PAYSTACK_BASE_URL}/transaction/initialize`, {
             email,
             amount: 2500, // 25 cedis -> NGN equivalent depends on Paystack settings
-            callback_url: 'https://yourfrontend.com/voucher/success',
+            callback_url: 'https://waecevouchershub.vercel.app/voucher/success',
             metadata: {
                 voucherId: selectedVoucher.id,
                 purchaserName: name,
