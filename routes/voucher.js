@@ -34,21 +34,21 @@ router.post('/purchase', async (req, res) => {
 
         // 4. Initialize Paystack Transaction
         // 
-        const paystackResponse = await axios.post(`${PAYSTACK_BASE_URL}/transaction/initialize`, {
-            email,
-            amount: 2500, // Amount in Pesewas (2500 = GH₵ 25.00)
-            currency: "GHS",
-            // Redirects user here after payment is complete
-            callback_url: 'https://waecevouchershub.vercel.app/success', 
-            metadata: {
-                voucherId: selectedVoucher.id,
-                purchaserName: name,
-                purchaserPhone: phone,
-                voucherType: type
-            }
-        }, {
-            headers: { 
-                Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+        // Inside your /purchase route in Express
+const paystackResponse = await axios.post(`${PAYSTACK_BASE_URL}/transaction/initialize`, {
+    email,
+    amount: 2500,
+    currency: "GHS",
+    // 1. DYNAMIC ORIGIN: Instead of hardcoding, let's make it smarter.
+    // Use the origin from the request or a verified env variable.
+    callback_url: `${process.env.FRONTEND_URL}/success`, 
+    metadata: {
+        voucherId: selectedVoucher.id,
+        purchaserName: name,
+        purchaserPhone: phone
+    }
+}, {
+    headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
                 'Content-Type': 'application/json'
             }
         });
