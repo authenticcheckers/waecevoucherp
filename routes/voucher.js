@@ -2,62 +2,83 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../utils/db');
 const generateFakeEmail = require('../utils/fakeEmailGenerator');
-const generateVoucherPDF = require('../utils/pdfGenerator');
 const axios = require('axios');
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
-const PAYSTACK_BASE_URL = process.env.PAYSTACK_BASE_URL;
+const PAYSTACK_BASE_URL = 'https://api.paystack.co'; // Standard Paystack API URL
 
 // Purchase voucher
 router.post('/purchase', async (req, res) => {
     try {
         const { name, phone, type } = req.body;
-        if(!name || !phone || !type) return res.status(400).json({ msg: 'Missing fields' });
 
-        // Get unsold voucher
-        const voucher = await pool.query(
+        // 1. Validate fields
+        if (!name || !phone || !type) {
+            return res.status(400).json({ msg: 'Missing required fields: name, phone, or type' });
+        }
+
+        // 2. Get an available (unsold) voucher from the database
+        const voucherRes = await pool.query(
             'SELECT * FROM vouchers WHERE type=$1 AND sold=false LIMIT 1',
-            [type]
+            [type.toUpperCase()]
         );
 
-        if(voucher.rows.length === 0) return res.status(400).json({ msg: 'No vouchers available' });
-        const selectedVoucher = voucher.rows[0];
+        if (voucherRes.rows.length === 0) {
+            return res.status(400).json({ msg: `Sorry, no ${type} vouchers are currently available.` });
+        }
 
-        // Fake email for Paystack
+        const selectedVoucher = voucherRes.rows[0];
+
+        // 3. Generate fake email for Paystack compatibility
         const email = generateFakeEmail(name);
 
-        // Create Paystack payment
+        // 4. Initialize Paystack Transaction
+        // 
         const paystackResponse = await axios.post(`${PAYSTACK_BASE_URL}/transaction/initialize`, {
             email,
-            amount: 2500, // 25 cedis -> NGN equivalent depends on Paystack settings
-            callback_url: 'https://waecevouchershub.vercel.app/voucher/success',
+            amount: 2500, // Amount in Pesewas (2500 = GH₵ 25.00)
+            currency: "GHS",
+            // Redirects user here after payment is complete
+            callback_url: 'https://waecevouchershub.vercel.app/success', 
             metadata: {
                 voucherId: selectedVoucher.id,
                 purchaserName: name,
-                purchaserPhone: phone
+                purchaserPhone: phone,
+                voucherType: type
             }
         }, {
-            headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` }
+            headers: { 
+                Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+                'Content-Type': 'application/json'
+            }
         });
 
+        // 5. Send the authorization URL to the frontend for redirection
         res.json({ authorization_url: paystackResponse.data.data.authorization_url });
 
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ msg: 'Server error' });
+        console.error("Paystack Initialization Error:", err.response?.data || err.message);
+        res.status(500).json({ msg: 'Payment initialization failed. Please try again.' });
     }
 });
 
-// Voucher retrieval (after successful payment)
-router.get('/retrieve/:serial', async (req,res) => {
+// Voucher retrieval (by serial number)
+router.get('/retrieve/:serial', async (req, res) => {
     try {
         const { serial } = req.params;
-        const voucher = await pool.query('SELECT * FROM vouchers WHERE serial_number=$1', [serial]);
-        if(voucher.rows.length === 0) return res.status(404).json({ msg: 'Voucher not found' });
+        const voucher = await pool.query(
+            'SELECT serial_number, pin, type, sold, purchased_at FROM vouchers WHERE serial_number=$1', 
+            [serial]
+        );
+        
+        if (voucher.rows.length === 0) {
+            return res.status(404).json({ msg: 'Voucher not found' });
+        }
+        
         res.json(voucher.rows[0]);
-    } catch(err) {
-        console.error(err);
-        res.status(500).json({ msg: 'Server error' });
+    } catch (err) {
+        console.error("Retrieval Error:", err);
+        res.status(500).json({ msg: 'Server error during retrieval' });
     }
 });
 
