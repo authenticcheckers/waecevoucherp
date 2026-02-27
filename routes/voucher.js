@@ -93,12 +93,14 @@ router.get('/verify', async (req, res) => {
       return res.status(400).json({ message: 'No voucher IDs found in payment metadata.' });
 
     // Idempotent bulk update — mark all vouchers as sold
+    // NOTE: paystack_reference is set per-row only if not already set,
+    // so re-calling verify (e.g. page refresh) never hits the unique constraint.
     const updateRes = await pool.query(
       `UPDATE vouchers
        SET sold               = true,
            purchaser_name     = $1,
            purchaser_phone    = $2,
-           paystack_reference = $3,
+           paystack_reference = COALESCE(paystack_reference, $3),
            purchased_at       = COALESCE(purchased_at, NOW())
        WHERE id = ANY($4::bigint[])
        RETURNING serial_number, pin, type`,
